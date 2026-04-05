@@ -18,7 +18,7 @@ Scout is a lightweight CLI tool for finding files using workspaces and full-text
 **macOS / Linux**
 
 ```sh
-curl -fsSL https://scout.paulanagnostou04.workers.dev/install.sh | sh
+curl -fsSL https://scout.paulanagnostou04.workers.dev/install.sh | sudo sh
 ```
 
 **Windows (PowerShell)**
