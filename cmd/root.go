@@ -4,9 +4,19 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/pavlitoss/scout-cli/internal/db"
 	"github.com/spf13/cobra"
 )
+
+var banner = lipgloss.NewStyle().Foreground(lipgloss.Color("14")).Render(`
+███████╗ ██████╗ ██████╗ ██╗   ██╗████████╗
+██╔════╝██╔════╝██╔═══██╗██║   ██║╚══██╔══╝
+███████╗██║     ██║   ██║██║   ██║   ██║
+╚════██║██║     ██║   ██║██║   ██║   ██║
+███████║╚██████╗╚██████╔╝╚██████╔╝   ██║
+╚══════╝ ╚═════╝ ╚═════╝  ╚═════╝    ╚═╝
+`) + lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Render("  \ntag and search your files, fast\n")
 
 // database is the open DB connection shared by all subcommands.
 // It is opened in PersistentPreRunE and closed in PersistentPostRunE.
@@ -15,7 +25,7 @@ var database *db.DB
 var rootCmd = &cobra.Command{
 	Use:   "scout",
 	Short: "Find your files fast",
-	Long:  "scout — tag and search your files using workspaces and full-text search.",
+	Long:  banner,
 
 	// ArbitraryArgs allows 0, 1, or 2 positional args so we can dispatch
 	// manually below rather than letting cobra reject them.
