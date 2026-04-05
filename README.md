@@ -15,8 +15,23 @@ Scout is a lightweight CLI tool for finding files using workspaces and full-text
 
 ## Install
 
+**macOS / Linux**
+
 ```sh
-curl -fsSL https://<your-server>/scout/install.sh | sh
+curl -fsSL https://scout.paulanagnostou04.workers.dev/install.sh | sh
+```
+
+**Windows (PowerShell)**
+
+```powershell
+$repo = "pavlitoss/scout-cli"
+$version = (Invoke-RestMethod "https://api.github.com/repos/$repo/releases/latest").tag_name
+$url = "https://github.com/$repo/releases/download/$version/scout-windows-amd64.exe"
+$dest = "$env:LOCALAPPDATA\Programs\scout\scout.exe"
+New-Item -ItemType Directory -Force -Path (Split-Path $dest) | Out-Null
+Invoke-WebRequest $url -OutFile $dest
+[Environment]::SetEnvironmentVariable("Path", $env:Path + ";$(Split-Path $dest)", "User")
+Write-Host "Done. Restart your terminal and run 'scout --help' to get started."
 ```
 
 Or build from source:
