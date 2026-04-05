@@ -1,0 +1,137 @@
+.TH SCOUT 1 "2026" "scout" "User Commands"
+.SH NAME
+scout \- tag and search your files, fast
+.SH SYNOPSIS
+.B scout
+[\fIFLAGS\fR]
+.br
+.B scout
+\fI"query"\fR
+.br
+.B scout
+\fI@tag\fR
+.br
+.B scout
+\fI@tag "query"\fR
+.br
+.B scout
+\fICOMMAND\fR [\fIARGS\fR]
+.SH DESCRIPTION
+.B scout
+is a lightweight CLI tool for finding files using workspaces and full-text search.
+Register directories as workspaces, optionally label files with custom tags,
+and search across everything instantly using SQLite FTS5.
+.PP
+All data is stored in \fB~/.scout/scout.db\fR. No daemon, no background process,
+no setup required \(em scout initialises automatically on first use.
+.SH ARGUMENT DISPATCH
+When called with positional arguments (no subcommand), scout dispatches as follows:
+.TP
+.B scout "\fIquery\fR"
+Full-text search across all tracked files.
+.TP
+.B scout @\fItag\fR
+List all files under a tag. Equivalent to \fBscout tag show @\fItag\fR.
+.TP
+.B scout @\fItag\fR "\fIquery\fR"
+Full-text search scoped to files under a tag.
+.SH COMMANDS
+.SS watch
+Manage watched workspaces (indexed directories).
+.TP
+.B scout watch add \fIpath\fR
+Register a directory as a workspace. Scout scans all files inside and indexes
+them. The directory name becomes an implicit tag (e.g. \fB~/code/myproject\fR \(->
+\fB@myproject\fR). Respects \fB.scoutignore\fR at the workspace root and global
+ignore rules in \fB~/.scout/config.toml\fR.
+.TP
+.B scout watch remove \fIpath\fR
+Unregister a workspace and remove all its files from the index.
+Does not delete files from disk.
+.TP
+.B scout watch list
+List all registered workspaces with file counts.
+.TP
+.B scout watch sync
+Rescan all workspaces: add newly created files, remove entries for deleted files.
+.SS tag
+Manage user-defined tags.
+.TP
+.B scout tag add @\fIname\fR \fIpath\fR
+Add a tag to a file or directory (recursively for directories).
+The file must already be tracked inside a watched workspace.
+.TP
+.B scout tag remove @\fIname\fR \fIpath\fR
+Remove a tag from a file or directory (recursively for directories).
+.TP
+.B scout tag list
+List all tags with file counts. Workspace tags are marked \fI(workspace)\fR.
+.TP
+.B scout tag show @\fIname\fR
+List all files associated with a tag.
+.SS prune
+.TP
+.B scout prune
+Scan all tracked file paths and remove DB entries for files that no longer
+exist on disk. Prints a summary of removed entries.
+.SH FILES
+.TP
+.B ~/.scout/scout.db
+SQLite database storing workspaces, files, tags, and the FTS5 search index.
+.TP
+.B ~/.scout/config.toml
+Optional configuration file. Example:
+.PP
+.RS
+.nf
+[ignore]
+dirs = ["vendor", "coverage"]
+extensions = [".pyc", ".class"]
+.fi
+.RE
+.TP
+.B .scoutignore
+Place in the root of a watched workspace to exclude files using
+.BR gitignore (5)-style
+glob patterns. Only read from the workspace root, not recursively.
+.SH EXAMPLES
+.PP
+Register a workspace and search it:
+.PP
+.RS
+.nf
+scout watch add ~/code/myproject
+scout "postgres config"
+scout @myproject "database"
+.fi
+.RE
+.PP
+Tag a subdirectory and search within it:
+.PP
+.RS
+.nf
+scout tag add @backend ~/code/myproject/src
+scout @backend "auth"
+.fi
+.RE
+.PP
+Clean up stale entries after deleting files:
+.PP
+.RS
+.nf
+scout prune
+.fi
+.RE
+.SH EXIT STATUS
+.TP
+.B 0
+Success.
+.TP
+.B 1
+Error (bad arguments, file not found, database failure).
+.SH SEE ALSO
+.BR find (1),
+.BR grep (1),
+.BR fd (1)
+.SH AUTHOR
+Written by pavlitoss.

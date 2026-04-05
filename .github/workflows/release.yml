@@ -1,0 +1,50 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    name: Build and release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Build binaries
+        run: |
+          VERSION="${{ github.ref_name }}"
+          LDFLAGS="-s -w -X github.com/pavlitoss/scout-cli/cmd.version=${VERSION}"
+
+          GOOS=linux   GOARCH=amd64 go build -ldflags "$LDFLAGS" -o dist/scout-linux-amd64   ./main.go
+          GOOS=linux   GOARCH=arm64 go build -ldflags "$LDFLAGS" -o dist/scout-linux-arm64   ./main.go
+          GOOS=darwin  GOARCH=amd64 go build -ldflags "$LDFLAGS" -o dist/scout-darwin-amd64  ./main.go
+          GOOS=darwin  GOARCH=arm64 go build -ldflags "$LDFLAGS" -o dist/scout-darwin-arm64  ./main.go
+          GOOS=windows GOARCH=amd64 go build -ldflags "$LDFLAGS" -o dist/scout-windows-amd64.exe ./main.go
+
+      - name: Compute checksums
+        run: |
+          cd dist
+          sha256sum scout-* > checksums.txt
+          cat checksums.txt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/scout-linux-amd64
+            dist/scout-linux-arm64
+            dist/scout-darwin-amd64
+            dist/scout-darwin-arm64
+            dist/scout-windows-amd64.exe
+            dist/checksums.txt

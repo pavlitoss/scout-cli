@@ -128,6 +128,61 @@ CREATE VIRTUAL TABLE files_fts USING fts5(
 
 ---
 
+## Exclusions
+
+### Default exclusions
+
+When scanning a directory, scout skips the following by default:
+
+**Directory names (anywhere in the tree):**
+- `node_modules`
+- `.git`
+- `.hg`
+- `.svn`
+- `dist`, `build`, `out`, `target`
+- `.cache`
+- `__pycache__`
+- `.venv`, `venv`, `env`
+
+**Paths (absolute prefix match):**
+- `/proc`
+- `/sys`
+- `/dev`
+- `/run`
+- `/tmp`
+
+**Files:**
+- Binary files — detected by scanning the first 512 bytes for null bytes; if any are found the file is skipped and no preview is stored
+- Files larger than 1 MB are indexed (path + name) but their preview is skipped
+
+### `.scoutignore`
+
+A `.scoutignore` file placed in a watched directory lets the user add custom exclusion patterns. Patterns follow `.gitignore` syntax (glob-based, one pattern per line, `#` for comments).
+
+```
+# .scoutignore example
+*.log
+*.lock
+secrets/
+tmp/
+```
+
+Scout checks for `.scoutignore` only at the root of each watched workspace, not recursively. Patterns apply to all paths within that workspace.
+
+### User-level ignore config
+
+Global exclusions can be defined in `~/.scout/config.toml`:
+
+```toml
+[ignore]
+dirs = ["vendor", "coverage", ".terraform"]
+extensions = [".pyc", ".class", ".o", ".a"]
+```
+
+These are merged with the built-in defaults and any `.scoutignore` rules.
+
+---
+
 ## Commands
 
 ### Root Command — Argument Dispatch
@@ -378,6 +433,48 @@ Releases should be published to GitHub Releases with prebuilt binaries for:
 - `windows/amd64`
 
 Homebrew distribution is via a personal tap (`scout-cli/tap/scout`), not Homebrew core.
+
+### Install Script (self-hosted)
+
+An install script is hosted on the personal home server and serves as the primary one-liner install method:
+
+```bash
+curl -fsSL https://<homeserver>/scout/install.sh | sh
+```
+
+The script detects OS and architecture, downloads the appropriate binary from GitHub Releases, and installs it to `/usr/local/bin/scout`:
+
+```sh
+#!/bin/sh
+set -e
+
+OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+ARCH=$(uname -m)
+
+case "$ARCH" in
+  x86_64)  ARCH="amd64" ;;
+  aarch64) ARCH="arm64" ;;
+  arm64)   ARCH="arm64" ;;
+  *)
+    echo "Unsupported architecture: $ARCH"
+    exit 1
+    ;;
+esac
+
+REPO="pavlitoss/scout-cli"
+VERSION=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" \
+  | grep '"tag_name"' | cut -d'"' -f4)
+
+BINARY="scout-${OS}-${ARCH}"
+URL="https://github.com/${REPO}/releases/download/${VERSION}/${BINARY}"
+
+echo "Installing scout ${VERSION} (${OS}/${ARCH})..."
+curl -fsSL "$URL" -o /usr/local/bin/scout
+chmod +x /usr/local/bin/scout
+echo "Done. Run 'scout --help' to get started."
+```
+
+The home server only serves this script — binaries are downloaded directly from GitHub Releases. If full independence from GitHub is desired in the future, binaries can be mirrored on the home server and the `URL` updated accordingly.
 
 ---
 

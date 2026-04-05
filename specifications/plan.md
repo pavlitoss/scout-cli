@@ -487,24 +487,67 @@ type Result struct {
     Preview *string  // nil for binary or unreadable files
 }
 
+// Options controls what the scanner skips.
+type Options struct {
+    ExtraDirs       []string // additional directory names to skip (from config.toml)
+    ExtraExtensions []string // additional file extensions to skip (e.g. ".pyc")
+    IgnorePatterns  []string // glob patterns from .scoutignore
+}
+
 // ScanDir walks a directory recursively and returns a Result for each file.
-// Skips hidden files/directories (names starting with ".").
-// Skips symlinks to avoid loops.
-func ScanDir(root string) ([]Result, error)
+// Applies built-in exclusions plus any user-supplied Options.
+func ScanDir(root string, opts Options) ([]Result, error)
 
 // ReadPreview reads the first 200 characters of a text file.
 // Returns nil if the file is binary or unreadable.
 func ReadPreview(path string) *string
+
+// LoadIgnoreFile reads a .scoutignore file at the root of a workspace.
+// Returns an empty slice if the file does not exist.
+func LoadIgnoreFile(workspaceRoot string) ([]string, error)
+```
+
+**Built-in excluded directory names** (checked against `d.Name()`, case-sensitive):
+
+```go
+var defaultExcludedDirs = map[string]bool{
+    "node_modules": true,
+    ".git":         true,
+    ".hg":          true,
+    ".svn":         true,
+    "dist":         true,
+    "build":        true,
+    "out":          true,
+    "target":       true,
+    ".cache":       true,
+    "__pycache__":  true,
+    ".venv":        true,
+    "venv":         true,
+    "env":          true,
+}
+```
+
+**Built-in excluded absolute path prefixes** (checked against the full path):
+
+```go
+var defaultExcludedPaths = []string{
+    "/proc", "/sys", "/dev", "/run", "/tmp",
+}
 ```
 
 **`ScanDir` implementation — use `filepath.WalkDir`:**
 
 `filepath.WalkDir` avoids an extra `os.Stat` per entry compared to `filepath.Walk`.
 
-Skip criteria inside the walk function:
-- `d.Name()` starts with `"."` → skip, and if directory return `filepath.SkipDir`
-- `d.Type()&fs.ModeSymlink != 0` → skip to avoid cycles
-- `d.IsDir()` → continue descending, don't emit a result
+Skip criteria inside the walk function (evaluated in order):
+1. Full path starts with any `defaultExcludedPaths` entry → skip (return `filepath.SkipDir` if dir)
+2. `d.Name()` is in `defaultExcludedDirs` → skip dir (`filepath.SkipDir`)
+3. `d.Name()` is in `opts.ExtraDirs` → skip dir (`filepath.SkipDir`)
+4. `d.Name()` starts with `"."` → skip (return `filepath.SkipDir` if dir)
+5. `d.Type()&fs.ModeSymlink != 0` → skip to avoid cycles
+6. File extension is in `opts.ExtraExtensions` → skip file
+7. Path matches any pattern in `opts.IgnorePatterns` (via `filepath.Match`) → skip
+8. `d.IsDir()` → continue descending, don't emit a result
 
 **`ReadPreview` implementation:**
 
@@ -520,16 +563,19 @@ Skip criteria inside the walk function:
 **`runWatchAdd`:**
 
 ```
-1. Normalize args[0] → absPath
-2. os.Stat(absPath) — error if not a directory
-3. name = filepath.Base(absPath)
-4. db.AddWorkspace(absPath, name) — error if already registered
-5. scanner.ScanDir(absPath) → []Result
-6. For each result: db.UpsertFile(r.Path, r.Name, r.Preview)
-7. tagName = "@" + name
-8. db.EnsureTag(tagName) → tagID
-9. db.TagFilesUnderPath(absPath, tagID)
-10. Print: "Registered workspace @<name> (<count> files)"
+1.  Normalize args[0] → absPath
+2.  os.Stat(absPath) — error if not a directory
+3.  name = filepath.Base(absPath)
+4.  db.AddWorkspace(absPath, name) — error if already registered
+5.  ignorePatterns = scanner.LoadIgnoreFile(absPath)
+6.  cfg = config.Load() — reads ~/.scout/config.toml (ignore section)
+7.  opts = scanner.Options{ExtraDirs: cfg.Ignore.Dirs, ExtraExtensions: cfg.Ignore.Extensions, IgnorePatterns: ignorePatterns}
+8.  scanner.ScanDir(absPath, opts) → []Result
+9.  For each result: db.UpsertFile(r.Path, r.Name, r.Preview)
+10. tagName = "@" + name
+11. db.EnsureTag(tagName) → tagID
+12. db.TagFilesUnderPath(absPath, tagID)
+13. Print: "Registered workspace @<name> (<count> files)"
 ```
 
 **`runWatchRemove`:**
@@ -547,8 +593,11 @@ Skip criteria inside the walk function:
 
 ```
 1. db.GetAllWorkspaces() → []Workspace
-2. For each workspace:
-   a. scanner.ScanDir(workspace.Path) → currentResults
+2. cfg = config.Load()
+3. For each workspace:
+   a. ignorePatterns = scanner.LoadIgnoreFile(workspace.Path)
+   b. opts = scanner.Options{ExtraDirs: cfg.Ignore.Dirs, ExtraExtensions: cfg.Ignore.Extensions, IgnorePatterns: ignorePatterns}
+   c. scanner.ScanDir(workspace.Path, opts) → currentResults
    b. db.GetFilesUnderPath(workspace.Path) → existingFiles
    c. Build currentPaths = map[string]Result
    d. Build existingPaths = map[string]File
@@ -562,9 +611,11 @@ Skip criteria inside the walk function:
 - [ ] `internal/db/workspaces.go` — workspace CRUD
 - [ ] `internal/db/files.go` — file CRUD with `ON CONFLICT DO UPDATE` upsert
 - [ ] `internal/db/tags.go` — `EnsureTag`, `TagFilesUnderPath`, `ListTags`
-- [ ] `internal/scanner/scanner.go` — `ScanDir` and `ReadPreview`
-- [ ] `cmd/watch.go` — all four handlers wired up
-- [ ] `scout watch add ~/some/dir` works end-to-end
+- [ ] `internal/scanner/scanner.go` — `ScanDir`, `ReadPreview`, `LoadIgnoreFile`
+- [ ] `internal/scanner/scanner.go` — built-in dir/path exclusion lists applied in `ScanDir`
+- [ ] `internal/config/config.go` — `Load()` reads `~/.scout/config.toml`, exposes `Ignore.Dirs` and `Ignore.Extensions`
+- [ ] `cmd/watch.go` — all four handlers wired up, `ScanDir` called with exclusion opts
+- [ ] `scout watch add ~/some/dir` works end-to-end and skips `node_modules`, `.git`, binaries, etc.
 
 ---
 
@@ -889,7 +940,49 @@ end
 
 Install via: `brew install scout-cli/tap/scout`
 
-### 6.3 `scout --version`
+### 6.3 Self-Hosted Install Script
+
+An install script is hosted on the personal home server at `https://<homeserver>/scout/install.sh`. It is the primary one-liner install method for non-Homebrew users.
+
+The script:
+1. Detects OS (`uname -s`) and architecture (`uname -m`), normalizing to the binary naming convention
+2. Fetches the latest release tag from the GitHub API
+3. Downloads the appropriate binary from GitHub Releases
+4. Installs it to `/usr/local/bin/scout` and makes it executable
+
+```sh
+#!/bin/sh
+set -e
+
+OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+ARCH=$(uname -m)
+
+case "$ARCH" in
+  x86_64)  ARCH="amd64" ;;
+  aarch64) ARCH="arm64" ;;
+  arm64)   ARCH="arm64" ;;
+  *)
+    echo "Unsupported architecture: $ARCH"
+    exit 1
+    ;;
+esac
+
+REPO="pavlitoss/scout-cli"
+VERSION=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" \
+  | grep '"tag_name"' | cut -d'"' -f4)
+
+BINARY="scout-${OS}-${ARCH}"
+URL="https://github.com/${REPO}/releases/download/${VERSION}/${BINARY}"
+
+echo "Installing scout ${VERSION} (${OS}/${ARCH})..."
+curl -fsSL "$URL" -o /usr/local/bin/scout
+chmod +x /usr/local/bin/scout
+echo "Done. Run 'scout --help' to get started."
+```
+
+The home server only serves this script — binaries are pulled from GitHub Releases. The script file itself should be versioned in the repo under `scripts/install.sh` and deployed to the server as part of the release process.
+
+### 6.4 `scout --version`
 
 In `cmd/root.go`, declare a package-level `version` variable and set it via ldflags:
 
@@ -908,6 +1001,7 @@ Cobra automatically adds `--version` / `-v` when `Version` is non-empty.
 - [ ] Binaries use `-ldflags "-s -w"` for size reduction
 - [ ] SHA256 checksums computed and uploaded to GitHub Releases
 - [ ] `homebrew-tap` repo with `Formula/scout.rb`
+- [ ] `scripts/install.sh` in repo, deployed to home server at release
 - [ ] `scout --version` prints the injected version string
 
 ---

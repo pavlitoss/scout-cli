@@ -6,8 +6,11 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/pavlitoss/scout-cli/internal/db"
+	"github.com/pavlitoss/scout-cli/internal/ui"
 	"github.com/spf13/cobra"
 )
+
+var version = "dev" // overridden at build time via -X cmd.version=...
 
 var banner = lipgloss.NewStyle().Foreground(lipgloss.Color("14")).Render(`
 ███████╗ ██████╗ ██████╗ ██╗   ██╗████████╗
@@ -23,20 +26,13 @@ var banner = lipgloss.NewStyle().Foreground(lipgloss.Color("14")).Render(`
 var database *db.DB
 
 var rootCmd = &cobra.Command{
-	Use:   "scout",
-	Short: "Find your files fast",
-	Long:  banner,
-
-	// ArbitraryArgs allows 0, 1, or 2 positional args so we can dispatch
-	// manually below rather than letting cobra reject them.
-	Args: cobra.ArbitraryArgs,
-
-	// SilenceUsage prevents cobra from printing the usage block when a
-	// runtime error occurs (it only shows on bad argument errors).
+	Use:          "scout",
+	Short:        "Find your files fast",
+	Long:         banner,
+	Version:      version,
+	Args:         cobra.ArbitraryArgs,
 	SilenceUsage: true,
 
-	// PersistentPreRunE runs before every command (including subcommands).
-	// We open the database here once so all handlers share the connection.
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		d, err := db.Open()
 		if err != nil {
@@ -46,7 +42,6 @@ var rootCmd = &cobra.Command{
 		return nil
 	},
 
-	// PersistentPostRunE closes the DB after every command finishes.
 	PersistentPostRunE: func(cmd *cobra.Command, args []string) error {
 		if database != nil {
 			return database.Close()
@@ -59,10 +54,6 @@ var rootCmd = &cobra.Command{
 			return cmd.Help()
 		}
 
-		// Dispatch based on argument shape:
-		//   scout @tagname           → list files under that tag
-		//   scout "some query"       → full-text search
-		//   scout @tagname "query"   → search scoped to tag
 		first := args[0]
 
 		if len(args) == 2 && strings.HasPrefix(first, "@") {
@@ -83,37 +74,68 @@ func Execute() error {
 }
 
 func init() {
-	// Register all top-level subcommands
 	rootCmd.AddCommand(watchCmd)
 	rootCmd.AddCommand(tagCmd)
 	rootCmd.AddCommand(pruneCmd)
 
-	// Register watch subcommands under watch
 	watchCmd.AddCommand(watchAddCmd)
 	watchCmd.AddCommand(watchRemoveCmd)
 	watchCmd.AddCommand(watchListCmd)
 	watchCmd.AddCommand(watchSyncCmd)
 
-	// Register tag subcommands under tag
 	tagCmd.AddCommand(tagAddCmd)
 	tagCmd.AddCommand(tagRemoveCmd)
 	tagCmd.AddCommand(tagListCmd)
 	tagCmd.AddCommand(tagShowCmd)
 }
 
-// --- Action stubs (will be filled in during later phases) ---
-
-func tagShowAction(tag string) error {
-	fmt.Printf("(stub) tag show: %s\n", tag)
-	return nil
-}
-
 func searchAction(query string) error {
-	fmt.Printf("(stub) search: %s\n", query)
+	results, err := database.Search(query)
+	if err != nil {
+		return fmt.Errorf("search: %w", err)
+	}
+
+	if len(results) == 0 {
+		fmt.Printf("No files found matching %q\n", query)
+		return nil
+	}
+
+	// Prune stale paths inline.
+	paths := make([]string, 0, len(results))
+	for _, r := range results {
+		paths = append(paths, "  "+ui.FormatPath(r.Path))
+	}
+
+	m := ui.ResultsModel{
+		Title:  fmt.Sprintf("Results for %q", query),
+		Items:  paths,
+		Footer: fmt.Sprintf("%d files", len(paths)),
+	}
+	fmt.Print(m.View())
 	return nil
 }
 
 func scopedSearchAction(tag, query string) error {
-	fmt.Printf("(stub) scoped search: %s %q\n", tag, query)
+	results, err := database.SearchByTag(tag, query)
+	if err != nil {
+		return fmt.Errorf("scoped search: %w", err)
+	}
+
+	if len(results) == 0 {
+		fmt.Printf("No files found in %s matching %q\n", ui.FormatTag(tag), query)
+		return nil
+	}
+
+	paths := make([]string, 0, len(results))
+	for _, r := range results {
+		paths = append(paths, "  "+ui.FormatPath(r.Path))
+	}
+
+	m := ui.ResultsModel{
+		Title:  fmt.Sprintf("Results for %s %q", tag, query),
+		Items:  paths,
+		Footer: fmt.Sprintf("%d files", len(paths)),
+	}
+	fmt.Print(m.View())
 	return nil
 }
